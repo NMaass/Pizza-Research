@@ -1,0 +1,5 @@
+{
+  "name": "pizza-research",
+  "private": true,
+  "workspaces": ["frontend", "worker"]
+}

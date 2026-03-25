@@ -1,0 +1,20 @@
+name = "pizza-research"
+main = "src/index.ts"
+compatibility_date = "2024-10-18"
+
+[durable_objects]
+bindings = [
+  { name = "COMBO_TRACKER", class_name = "ComboTracker" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ComboTracker"]
+
+[vars]
+CORS_ORIGIN = "*"
+
+# KV namespace for topping taxonomy and leaderboard caches
+[[kv_namespaces]]
+binding = "PIZZA_KV"
+id = "pizza_kv_placeholder"
