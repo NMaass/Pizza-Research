@@ -106,15 +106,15 @@ export function matchTopping(input: string): string | null {
 }
 
 /**
- * Calculate max possible 3-topping combos using progressive subset math.
- * C(n,1) + C(n,2) + C(n,3) for n toppings.
+ * Calculate max possible combos: C(n,1) + C(n,2) + C(n,3) + C(n,4).
  */
-export function calculateMaxCombos(): number {
-  const n = TOPPING_TAXONOMY.length;
-  const c1 = n; // single toppings
-  const c2 = (n * (n - 1)) / 2; // two-topping combos
-  const c3 = (n * (n - 1) * (n - 2)) / 6; // three-topping combos
-  return c1 + c2 + c3;
+export function calculateMaxCombos(n?: number): number {
+  n = n ?? TOPPING_TAXONOMY.length;
+  const c1 = n;
+  const c2 = (n * (n - 1)) / 2;
+  const c3 = (n * (n - 1) * (n - 2)) / 6;
+  const c4 = (n * (n - 1) * (n - 2) * (n - 3)) / 24;
+  return c1 + c2 + c3 + c4;
 }
 
 /**

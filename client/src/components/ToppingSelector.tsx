@@ -31,7 +31,7 @@ export function ToppingSelector({
   const toggle = (topping: string) => {
     if (selected.includes(topping)) {
       onSelectionChange(selected.filter((t) => t !== topping));
-    } else if (selected.length < 3) {
+    } else if (selected.length < 4) {
       onSelectionChange([...selected, topping]);
     }
   };
@@ -80,7 +80,7 @@ export function ToppingSelector({
       </span>
 
       <p style={{ fontSize: "0.875rem", margin: "1rem 0 0.5rem", color: "#666" }}>
-        choose up to 3 toppings ({selected.length}/3)
+        choose up to 4 toppings ({selected.length}/4)
       </p>
 
       {suggestedToppings.length > 0 && (
@@ -128,8 +128,8 @@ export function ToppingSelector({
             onClick={() => toggle(t)}
             style={{
               ...chipStyle(selected.includes(t)),
-              opacity: selected.length >= 3 && !selected.includes(t) ? 0.3 : 1,
-              pointerEvents: selected.length >= 3 && !selected.includes(t) ? "none" : "auto",
+              opacity: selected.length >= 4 && !selected.includes(t) ? 0.3 : 1,
+              pointerEvents: selected.length >= 4 && !selected.includes(t) ? "none" : "auto",
             }}
           >
             {t}

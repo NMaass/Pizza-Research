@@ -68,7 +68,7 @@ export default {
         const extended = await env.PIZZA_KV.get("extended_toppings", "json");
         const extraCount = extended ? (extended as string[]).length : 0;
         const n = getAllToppings().length + extraCount;
-        const maxCombos = n + (n * (n - 1)) / 2 + (n * (n - 1) * (n - 2)) / 6;
+        const maxCombos = calculateMaxCombos(n);
         return jsonResponse({ maxCombos, toppingCount: n }, env);
       }
 
@@ -125,8 +125,8 @@ export default {
           userId: string;
         };
 
-        if (!body.toppings?.length || body.toppings.length > 3) {
-          return jsonResponse({ error: "Provide 1-3 toppings" }, env, 400);
+        if (!body.toppings?.length || body.toppings.length > 4) {
+          return jsonResponse({ error: "Provide 1-4 toppings" }, env, 400);
         }
         if (!body.userId) {
           return jsonResponse({ error: "userId required" }, env, 400);
@@ -182,7 +182,7 @@ export default {
         const extended = await env.PIZZA_KV.get("extended_toppings", "json");
         const extraCount = extended ? (extended as string[]).length : 0;
         const n = getAllToppings().length + extraCount;
-        const maxCombos = n + (n * (n - 1)) / 2 + (n * (n - 1) * (n - 2)) / 6;
+        const maxCombos = calculateMaxCombos(n);
 
         return jsonResponse({ ...(result as object), maxCombos, toppingCount: n }, env);
       }
