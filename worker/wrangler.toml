@@ -17,4 +17,4 @@ CORS_ORIGIN = "*"
 # KV namespace for topping taxonomy and leaderboard caches
 [[kv_namespaces]]
 binding = "PIZZA_KV"
-id = "pizza_kv_placeholder"
+id = "ae1b5f869402446ba733495c4c49a325"

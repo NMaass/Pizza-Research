@@ -59,7 +59,7 @@ export async function extractToppingsFromImage(
 
   const result = await callOpenRouter(
     apiKey,
-    "google/gemini-2.0-flash-001", // fast, cheap vision model
+    "nvidia/nemotron-nano-12b-v2-vl:free",
     [
       {
         role: "system",
