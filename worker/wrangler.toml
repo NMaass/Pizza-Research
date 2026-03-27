@@ -19,6 +19,3 @@ CORS_ORIGIN = "*"
 [[kv_namespaces]]
 binding = "PIZZA_KV"
 id = "ae1b5f869402446ba733495c4c49a325"
-
-[assets]
-directory = "../client/dist"
