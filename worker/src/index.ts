@@ -13,9 +13,16 @@
  */
 
 import { getAllToppings, matchTopping, calculateMaxCombos, comboKey, TOPPING_TAXONOMY } from "./toppings";
-import { extractToppingsFromImage, normalizeTopping } from "./openrouter";
+import { extractReceiptData, normalizeTopping } from "./openrouter";
 
 export { ComboTracker } from "./combo-tracker";
+
+interface PizzaPin {
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+}
 
 interface Env {
   COMBO_TRACKER: DurableObjectNamespace;
@@ -79,19 +86,23 @@ export default {
           mimeType: string;
         };
 
-        const rawToppings = await extractToppingsFromImage(
+        const receiptData = await extractReceiptData(
           env.OPENROUTER_API_KEY,
           body.image,
           body.mimeType
         );
 
         // Try to match each raw topping to canonical
-        const matched = rawToppings.map((raw) => {
+        const matched = receiptData.toppings.map((raw) => {
           const canonical = matchTopping(raw);
           return { raw, canonical, matched: canonical !== null };
         });
 
-        return jsonResponse({ toppings: matched }, env);
+        return jsonResponse({
+          toppings: matched,
+          restaurantName: receiptData.restaurantName,
+          restaurantAddress: receiptData.restaurantAddress,
+        }, env);
       }
 
       // --- Normalize unknown topping ---
@@ -185,6 +196,54 @@ export default {
         const maxCombos = calculateMaxCombos(n);
 
         return jsonResponse({ ...(result as object), maxCombos, toppingCount: n }, env);
+      }
+
+      // --- Pins endpoint ---
+      if (url.pathname === "/api/pins" && request.method === "GET") {
+        const pins = await env.PIZZA_KV.get("pizza_pins", "json") as PizzaPin[] | null;
+        return jsonResponse({ pins: pins ?? [] }, env);
+      }
+
+      // --- Geocode endpoint ---
+      if (url.pathname === "/api/geocode" && request.method === "POST") {
+        const body = (await request.json()) as {
+          address: string;
+          restaurantName?: string;
+        };
+
+        if (!body.address) {
+          return jsonResponse({ error: "address required" }, env, 400);
+        }
+
+        const geoUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(body.address)}&format=json&limit=1`;
+        const geoRes = await fetch(geoUrl, {
+          headers: { "User-Agent": "PizzaResearch/1.0" },
+        });
+        const geoData = (await geoRes.json()) as Array<{ lat: string; lon: string }>;
+
+        if (!geoData.length) {
+          return jsonResponse({ error: "Could not geocode address" }, env, 404);
+        }
+
+        const lat = parseFloat(geoData[0].lat);
+        const lng = parseFloat(geoData[0].lon);
+
+        // Store pin in KV
+        const existing = (await env.PIZZA_KV.get("pizza_pins", "json") as PizzaPin[] | null) ?? [];
+        const alreadyExists = existing.some(
+          (p) => p.address === body.address
+        );
+        if (!alreadyExists) {
+          existing.push({
+            name: body.restaurantName ?? "unknown",
+            address: body.address,
+            lat,
+            lng,
+          });
+          await env.PIZZA_KV.put("pizza_pins", JSON.stringify(existing));
+        }
+
+        return jsonResponse({ lat, lng, name: body.restaurantName ?? "unknown", address: body.address }, env);
       }
 
       return jsonResponse({ error: "Not found" }, env, 404);

@@ -1,12 +1,8 @@
 /**
  * OpenRouter API integration for:
- * 1. Vision OCR — extract toppings from receipt photos
+ * 1. Vision OCR — extract toppings and restaurant info from receipt photos
  * 2. Topping normalization — decide if a new topping matches existing taxonomy
  */
-
-interface OpenRouterEnv {
-  OPENROUTER_API_KEY: string;
-}
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -46,15 +42,20 @@ async function callOpenRouter(
   return data.choices[0]?.message?.content ?? "";
 }
 
+export interface ReceiptData {
+  toppings: string[];
+  restaurantName: string | null;
+  restaurantAddress: string | null;
+}
+
 /**
- * Extract pizza toppings from a receipt image using a vision model.
- * Returns a list of raw topping strings found on the receipt.
+ * Extract pizza toppings and restaurant info from a receipt image using a vision model.
  */
-export async function extractToppingsFromImage(
+export async function extractReceiptData(
   apiKey: string,
   imageBase64: string,
   mimeType: string
-): Promise<string[]> {
+): Promise<ReceiptData> {
   const dataUrl = `data:${mimeType};base64,${imageBase64}`;
 
   const result = await callOpenRouter(
@@ -64,12 +65,12 @@ export async function extractToppingsFromImage(
       {
         role: "system",
         content:
-          "You are a pizza receipt reader. Extract ONLY the pizza toppings from the receipt image. Return a JSON array of topping strings, nothing else. Example: [\"pepperoni\", \"mushrooms\", \"green peppers\"]. If no pizza toppings are found, return []. Do not include crust types, sizes, or non-topping items.",
+          'You are a pizza receipt reader. Extract the pizza toppings, restaurant name, and restaurant address from the receipt image. Return a JSON object with this exact format: {"toppings": ["pepperoni", "mushrooms"], "restaurantName": "Giordano\'s", "restaurantAddress": "730 N Rush St, Chicago, IL 60611"}. If you cannot find toppings, return an empty array for toppings. If you cannot find the restaurant name or address, use null for those fields. Do not include crust types, sizes, or non-topping items in toppings. Return ONLY the JSON object, nothing else.',
       },
       {
         role: "user",
         content: [
-          { type: "text", text: "Extract the pizza toppings from this receipt:" },
+          { type: "text", text: "Extract the pizza toppings and restaurant info from this receipt:" },
           { type: "image_url", image_url: { url: dataUrl } },
         ],
       },
@@ -77,19 +78,38 @@ export async function extractToppingsFromImage(
   );
 
   try {
-    // Try to parse the JSON array from the response
     const cleaned = result.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
     const parsed = JSON.parse(cleaned);
-    if (Array.isArray(parsed)) {
-      return parsed.map((t: unknown) => String(t).trim()).filter(Boolean);
-    }
+    return {
+      toppings: Array.isArray(parsed.toppings)
+        ? parsed.toppings.map((t: unknown) => String(t).trim()).filter(Boolean)
+        : [],
+      restaurantName: typeof parsed.restaurantName === "string" ? parsed.restaurantName : null,
+      restaurantAddress: typeof parsed.restaurantAddress === "string" ? parsed.restaurantAddress : null,
+    };
   } catch {
-    // If parsing fails, try to extract toppings from text
+    // Fallback: try to extract toppings from text
     const lines = result.split("\n").map((l) => l.replace(/^[-*•]\s*/, "").trim()).filter(Boolean);
-    return lines;
+    return {
+      toppings: lines,
+      restaurantName: null,
+      restaurantAddress: null,
+    };
   }
+}
 
-  return [];
+/**
+ * Extract pizza toppings from a receipt image using a vision model.
+ * Returns a list of raw topping strings found on the receipt.
+ * (Backwards-compatible wrapper around extractReceiptData)
+ */
+export async function extractToppingsFromImage(
+  apiKey: string,
+  imageBase64: string,
+  mimeType: string
+): Promise<string[]> {
+  const data = await extractReceiptData(apiKey, imageBase64, mimeType);
+  return data.toppings;
 }
 
 /**

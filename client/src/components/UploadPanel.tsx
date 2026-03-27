@@ -1,13 +1,17 @@
 import { useState, useRef } from "react";
 import { api } from "../api";
 
-interface Props {
-  allToppings: string[];
-  onOcrResult: (toppings: string[]) => void;
-  onManualSelect: () => void;
+export interface ReceiptOcrResult {
+  toppings: string[];
+  restaurantName: string | null;
+  restaurantAddress: string | null;
 }
 
-export function UploadPanel({ onOcrResult, onManualSelect }: Props) {
+interface Props {
+  onOcrResult: (result: ReceiptOcrResult) => void;
+}
+
+export function UploadPanel({ onOcrResult }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -26,7 +30,11 @@ export function UploadPanel({ onOcrResult, onManualSelect }: Props) {
       const matched = result.toppings
         .filter((t) => t.matched && t.canonical)
         .map((t) => t.canonical!);
-      onOcrResult([...new Set(matched)]);
+      onOcrResult({
+        toppings: [...new Set(matched)],
+        restaurantName: result.restaurantName ?? null,
+        restaurantAddress: result.restaurantAddress ?? null,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "ocr failed");
     } finally {
@@ -43,8 +51,7 @@ export function UploadPanel({ onOcrResult, onManualSelect }: Props) {
   return (
     <div style={{ maxWidth: "400px", width: "100%", textAlign: "center" }}>
       <p style={{ fontSize: "0.875rem", color: "#666", marginBottom: "1.5rem", lineHeight: 1.7 }}>
-        snap a photo of your pizza receipt and we'll extract the toppings,
-        or select them manually below.
+        snap a photo of your pizza receipt and we'll extract the toppings.
       </p>
 
       {loading ? (
@@ -105,19 +112,6 @@ export function UploadPanel({ onOcrResult, onManualSelect }: Props) {
       {error && (
         <p style={{ fontSize: "0.8125rem", color: "#c00", marginBottom: "0.5rem" }}>{error}</p>
       )}
-
-      <p style={{ fontSize: "0.8125rem", color: "#ccc", margin: "1rem 0" }}>or</p>
-
-      <span
-        onClick={onManualSelect}
-        style={{
-          fontSize: "0.875rem",
-          cursor: "pointer",
-          textDecoration: "underline",
-        }}
-      >
-        select toppings manually
-      </span>
     </div>
   );
 }

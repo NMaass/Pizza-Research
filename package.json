@@ -5,8 +5,7 @@
   "scripts": {
     "dev:worker": "cd worker && bunx wrangler dev",
     "dev:client": "cd client && bunx vite",
-    "deploy:worker": "cd worker && bunx wrangler deploy",
-    "deploy:client": "cd client && bun run build && bunx wrangler pages deploy dist --project-name=pizza-research",
+    "deploy": "cd client && bunx vite build && cd ../worker && bunx wrangler deploy",
     "build:client": "cd client && bunx vite build",
     "typecheck": "cd worker && bunx tsc --noEmit && cd ../client && bunx tsc --noEmit"
   }

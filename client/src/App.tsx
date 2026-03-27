@@ -1,16 +1,17 @@
 import { useState, useEffect } from "react";
 import { api, type Stats } from "./api";
-import { UploadPanel } from "./components/UploadPanel";
+import { UploadPanel, type ReceiptOcrResult } from "./components/UploadPanel";
 import { ToppingSelector } from "./components/ToppingSelector";
 import { ResultPanel } from "./components/ResultPanel";
 import { Leaderboard } from "./components/Leaderboard";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { ProgressBar } from "./components/ProgressBar";
+import { PizzaMap } from "./components/PizzaMap";
 import type { DiscoveryResult } from "./api";
 
-type View = "discover" | "leaderboard" | "my combos";
+type View = "discover" | "leaderboard" | "my combos" | "map";
 
-const tabs: View[] = ["discover", "leaderboard", "my combos"];
+const tabs: View[] = ["discover", "leaderboard", "my combos", "map"];
 
 export function App() {
   const [view, setView] = useState<View>("discover");
@@ -21,6 +22,10 @@ export function App() {
   const [selectedToppings, setSelectedToppings] = useState<string[]>([]);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
 
+  // Restaurant info from OCR
+  const [restaurantName, setRestaurantName] = useState<string | null>(null);
+  const [restaurantAddress, setRestaurantAddress] = useState<string | null>(null);
+
   useEffect(() => {
     api.getStats().then(setStats).catch(() => {});
     api.getToppings().then((d) => setAllToppings(d.toppings)).catch(() => {});
@@ -30,7 +35,23 @@ export function App() {
     setOcrToppings(null);
     setSelectedToppings([]);
     setResult(null);
+    setRestaurantName(null);
+    setRestaurantAddress(null);
     api.getStats().then(setStats).catch(() => {});
+  };
+
+  const handleOcrResult = (ocrResult: ReceiptOcrResult) => {
+    setOcrToppings(ocrResult.toppings);
+    setRestaurantName(ocrResult.restaurantName);
+    setRestaurantAddress(ocrResult.restaurantAddress);
+  };
+
+  const handleDiscoveryResult = (discoveryResult: DiscoveryResult) => {
+    setResult(discoveryResult);
+    // Geocode restaurant if we have an address
+    if (restaurantAddress) {
+      api.geocode(restaurantAddress, restaurantName ?? undefined).catch(() => {});
+    }
   };
 
   return (
@@ -82,9 +103,7 @@ export function App() {
 
             {!result && ocrToppings === null && (
               <UploadPanel
-                allToppings={allToppings}
-                onOcrResult={setOcrToppings}
-                onManualSelect={() => setOcrToppings([])}
+                onOcrResult={handleOcrResult}
               />
             )}
 
@@ -94,7 +113,7 @@ export function App() {
                 suggestedToppings={ocrToppings}
                 selected={selectedToppings}
                 onSelectionChange={setSelectedToppings}
-                onSubmit={setResult}
+                onSubmit={handleDiscoveryResult}
                 onBack={() => setOcrToppings(null)}
               />
             )}
@@ -107,6 +126,7 @@ export function App() {
 
         {view === "leaderboard" && <Leaderboard />}
         {view === "my combos" && <HistoryPanel />}
+        {view === "map" && <PizzaMap />}
       </div>
     </div>
   );

@@ -45,6 +45,13 @@ export interface LeaderboardEntry {
   tastiness?: number;
 }
 
+export interface PizzaPin {
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+}
+
 export const api = {
   getToppings: () =>
     apiFetch<{ toppings: string[]; categories: Record<string, string[]> }>("/api/toppings"),
@@ -53,7 +60,7 @@ export const api = {
     apiFetch<{ maxCombos: number; toppingCount: number }>("/api/max-combos"),
 
   ocr: (image: string, mimeType: string) =>
-    apiFetch<{ toppings: ToppingMatch[] }>("/api/ocr", {
+    apiFetch<{ toppings: ToppingMatch[]; restaurantName: string | null; restaurantAddress: string | null }>("/api/ocr", {
       method: "POST",
       body: JSON.stringify({ image, mimeType }),
     }),
@@ -79,4 +86,13 @@ export const api = {
     apiFetch<{ leaderboard: LeaderboardEntry[] }>(
       `/api/leaderboard?type=${type}&limit=${limit}`
     ),
+
+  getPins: () =>
+    apiFetch<{ pins: PizzaPin[] }>("/api/pins"),
+
+  geocode: (address: string, restaurantName?: string) =>
+    apiFetch<PizzaPin>("/api/geocode", {
+      method: "POST",
+      body: JSON.stringify({ address, restaurantName }),
+    }),
 };
