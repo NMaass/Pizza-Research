@@ -1,133 +1,174 @@
-import { useState, useEffect } from "react";
-import { api, type Stats } from "./api";
-import { UploadPanel, type ReceiptOcrResult } from "./components/UploadPanel";
-import { ToppingSelector } from "./components/ToppingSelector";
-import { ResultPanel } from "./components/ResultPanel";
-import { Leaderboard } from "./components/Leaderboard";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Button,
+  ResearchHeader,
+  ResearchShell,
+  StatusMessage,
+  Tabs,
+} from "@nmaass/research-ui";
+import { api, type DiscoveryResult, type Stats } from "./api";
 import { HistoryPanel } from "./components/HistoryPanel";
-import { ProgressBar } from "./components/ProgressBar";
+import { Leaderboard } from "./components/Leaderboard";
 import { PizzaMap } from "./components/PizzaMap";
-import type { DiscoveryResult } from "./api";
+import { ProgressBar } from "./components/ProgressBar";
+import { ResultPanel } from "./components/ResultPanel";
+import { ToppingSelector } from "./components/ToppingSelector";
+import { UploadPanel, type ReceiptOcrResult } from "./components/UploadPanel";
 
 type View = "discover" | "leaderboard" | "my combos" | "map";
 
-const tabs: View[] = ["discover", "leaderboard", "my combos", "map"];
+const tabs: Array<{ id: View; label: string }> = [
+  { id: "discover", label: "discover" },
+  { id: "leaderboard", label: "leaderboard" },
+  { id: "my combos", label: "my combos" },
+  { id: "map", label: "map" },
+];
+
+const viewFromHash = (): View => {
+  const requested = decodeURIComponent(window.location.hash.slice(1));
+  return tabs.some(({ id }) => id === requested) ? (requested as View) : "discover";
+};
 
 export function App() {
-  const [view, setView] = useState<View>("discover");
+  const [view, setView] = useState<View>(viewFromHash);
   const [stats, setStats] = useState<Stats | null>(null);
   const [allToppings, setAllToppings] = useState<string[]>([]);
-
+  const [startupError, setStartupError] = useState<string | null>(null);
   const [ocrToppings, setOcrToppings] = useState<string[] | null>(null);
   const [selectedToppings, setSelectedToppings] = useState<string[]>([]);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
+  const [restaurantName, setRestaurantName] = useState("");
+  const [restaurantAddress, setRestaurantAddress] = useState("");
 
-  // Restaurant info from OCR
-  const [restaurantName, setRestaurantName] = useState<string | null>(null);
-  const [restaurantAddress, setRestaurantAddress] = useState<string | null>(null);
+  const loadReferenceData = useCallback(async () => {
+    setStartupError(null);
+    try {
+      const [nextStats, toppingData] = await Promise.all([
+        api.getStats(),
+        api.getToppings(),
+      ]);
+      setStats(nextStats);
+      setAllToppings(toppingData.toppings);
+    } catch (error) {
+      setStartupError(
+        error instanceof Error ? error.message : "could not load pizza research data",
+      );
+    }
+  }, []);
 
   useEffect(() => {
-    api.getStats().then(setStats).catch(() => {});
-    api.getToppings().then((d) => setAllToppings(d.toppings)).catch(() => {});
+    void loadReferenceData();
+  }, [loadReferenceData]);
+
+  useEffect(() => {
+    const handleHashChange = () => setView(viewFromHash());
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
   const resetFlow = () => {
     setOcrToppings(null);
     setSelectedToppings([]);
     setResult(null);
-    setRestaurantName(null);
-    setRestaurantAddress(null);
-    api.getStats().then(setStats).catch(() => {});
+    setRestaurantName("");
+    setRestaurantAddress("");
+    void loadReferenceData();
+  };
+
+  const selectView = (nextView: View) => {
+    window.location.hash = encodeURIComponent(nextView);
+    setView(nextView);
+    if (nextView === "discover") resetFlow();
   };
 
   const handleOcrResult = (ocrResult: ReceiptOcrResult) => {
     setOcrToppings(ocrResult.toppings);
-    setRestaurantName(ocrResult.restaurantName);
-    setRestaurantAddress(ocrResult.restaurantAddress);
+    setSelectedToppings(ocrResult.toppings.slice(0, 4));
+    setRestaurantName(ocrResult.restaurantName ?? "");
+    setRestaurantAddress(ocrResult.restaurantAddress ?? "");
   };
 
   const handleDiscoveryResult = (discoveryResult: DiscoveryResult) => {
     setResult(discoveryResult);
-    // Geocode restaurant if we have an address
-    if (restaurantAddress) {
-      api.geocode(restaurantAddress, restaurantName ?? undefined).catch(() => {});
+    if (restaurantAddress.trim()) {
+      api.geocode(restaurantAddress.trim(), restaurantName.trim() || undefined).catch(() => {
+        // Geocoding is supplementary; the discovery itself has already succeeded.
+      });
     }
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <nav style={{
-        display: "flex",
-        gap: "1.5rem",
-        padding: "0.75rem 1.25rem",
-        fontSize: "0.875rem",
-        borderBottom: "1px solid #eee",
-      }}>
-        {tabs.map((tab) => (
-          <span
-            key={tab}
-            onClick={() => { setView(tab); if (tab === "discover") resetFlow(); }}
-            style={{
-              cursor: "pointer",
-              textDecoration: view === tab ? "underline" : "none",
-            }}
-          >
-            {tab}
-          </span>
-        ))}
-      </nav>
+    <ResearchShell className="pizza-research">
+      <ResearchHeader title="Pizza Research Inc." homeHref="#discover">
+        <Tabs items={tabs} activeId={view} onChange={(id) => selectView(id as View)} />
+      </ResearchHeader>
 
-      <div style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        overflow: "auto",
-      }}>
+      <main className="nr-page">
+        {startupError && (
+          <StatusMessage
+            variant="error"
+            title="could not load research data"
+            action={<Button onClick={() => void loadReferenceData()}>try again</Button>}
+          >
+            {startupError}
+          </StatusMessage>
+        )}
+
         {view === "discover" && (
-          <div style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            padding: "2rem 1.25rem",
-            gap: "1rem",
-          }}>
+          <section className="nr-panel nr-panel--center pizza-view" aria-label="discover a pizza combination">
             {stats && (
               <>
                 <ProgressBar fraction={stats.comboCount / stats.maxCombos} />
-                <p style={{ fontSize: "0.875rem", color: "#666" }}>
-                  {((stats.comboCount / stats.maxCombos) * 100).toFixed(3)}% of combos
-                  discovered ({stats.comboCount.toLocaleString()} / {stats.maxCombos.toLocaleString()})
+                <p className="nr-muted pizza-progress-copy">
+                  {((stats.comboCount / stats.maxCombos) * 100).toFixed(3)}% of combos discovered
+                  ({" "}{stats.comboCount.toLocaleString()} / {stats.maxCombos.toLocaleString()})
                 </p>
               </>
             )}
 
-            {!result && ocrToppings === null && (
-              <UploadPanel
-                onOcrResult={handleOcrResult}
-              />
-            )}
+            {!result && ocrToppings === null && <UploadPanel onOcrResult={handleOcrResult} />}
 
             {!result && ocrToppings !== null && (
-              <ToppingSelector
-                allToppings={allToppings}
-                suggestedToppings={ocrToppings}
-                selected={selectedToppings}
-                onSelectionChange={setSelectedToppings}
-                onSubmit={handleDiscoveryResult}
-                onBack={() => setOcrToppings(null)}
-              />
+              <>
+                <div className="nr-field">
+                  <label className="nr-label" htmlFor="restaurant-name">restaurant name</label>
+                  <input
+                    id="restaurant-name"
+                    className="nr-input"
+                    value={restaurantName}
+                    onChange={(event) => setRestaurantName(event.target.value)}
+                    placeholder="optional"
+                  />
+                </div>
+                <div className="nr-field">
+                  <label className="nr-label" htmlFor="restaurant-address">restaurant address</label>
+                  <input
+                    id="restaurant-address"
+                    className="nr-input"
+                    value={restaurantAddress}
+                    onChange={(event) => setRestaurantAddress(event.target.value)}
+                    placeholder="optional"
+                  />
+                </div>
+                <ToppingSelector
+                  allToppings={allToppings}
+                  suggestedToppings={ocrToppings}
+                  selected={selectedToppings}
+                  onSelectionChange={setSelectedToppings}
+                  onSubmit={handleDiscoveryResult}
+                  onBack={() => setOcrToppings(null)}
+                />
+              </>
             )}
 
-            {result && (
-              <ResultPanel result={result} onReset={resetFlow} />
-            )}
-          </div>
+            {result && <ResultPanel result={result} onReset={resetFlow} />}
+          </section>
         )}
 
         {view === "leaderboard" && <Leaderboard />}
         {view === "my combos" && <HistoryPanel />}
         {view === "map" && <PizzaMap />}
-      </div>
-    </div>
+      </main>
+    </ResearchShell>
   );
 }
