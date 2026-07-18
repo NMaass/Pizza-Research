@@ -1,32 +1,65 @@
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+:root {
+  --nr-accent: #b7792f;
 }
 
-html, body, #root {
-  height: 100%;
-  width: 100%;
+html,
+body,
+#root {
+  min-height: 100%;
 }
 
 body {
-  font-family: Georgia, 'Times New Roman', serif;
-  background: #fff;
-  color: #111;
+  min-width: 320px;
+}
+
+.pizza-research {
+  min-height: 100vh;
+}
+
+.pizza-research .nr-panel {
+  margin-inline: auto;
+}
+
+.pizza-progress-copy {
+  margin-top: -0.25rem;
+  text-align: center;
+}
+
+.pizza-view {
+  width: 100%;
+}
+
+.pizza-view > * {
+  margin-inline: auto;
+}
+
+input,
+button,
+select {
+  font: inherit;
+}
+
+button,
+.nr-label,
+.nr-brand,
+.nr-tab {
   text-transform: lowercase;
-  -webkit-font-smoothing: antialiased;
 }
 
-a {
-  color: #111;
-  text-decoration: none;
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--nr-text);
+  outline-offset: 3px;
 }
 
-a:hover {
-  text-decoration: underline;
-}
+@media (max-width: 520px) {
+  .pizza-research .nr-header {
+    padding-top: 1.5rem;
+  }
 
-input, button, select {
-  font-family: inherit;
-  text-transform: lowercase;
+  .pizza-research .nr-tabs {
+    gap: 0.9rem;
+  }
 }
