@@ -9,6 +9,7 @@
     "preview": "bunx vite preview"
   },
   "dependencies": {
+    "@nmaass/research-ui": "github:NMaass/Chord-Research#research-ui-v0",
     "leaflet": "^1.9.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
