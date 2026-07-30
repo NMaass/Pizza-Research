@@ -124,7 +124,7 @@ export function App() {
     setLocationWarning(null);
 
     const address = restaurantAddress.trim();
-    if (address && discoveryResult.isNewObservation) {
+    if (address) {
       void api
         .geocode(
           address,
