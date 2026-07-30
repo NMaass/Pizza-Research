@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { api, type DiscoveryResult } from "../api";
+import { Button, StatusMessage } from "../research-ui";
 import { getUserId, saveDiscovery } from "../userId";
 
 interface Props {
@@ -24,176 +25,170 @@ export function ToppingSelector({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const filtered = allToppings.filter(
-    (t) => t.includes(search.toLowerCase()) && !selected.includes(t)
-  );
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return [...new Set(allToppings)]
+      .filter((topping) => topping.toLowerCase().includes(query) && !selected.includes(topping))
+      .sort((left, right) => left.localeCompare(right));
+  }, [allToppings, search, selected]);
 
   const toggle = (topping: string) => {
+    if (submitting) return;
     if (selected.includes(topping)) {
-      onSelectionChange(selected.filter((t) => t !== topping));
+      onSelectionChange(selected.filter((entry) => entry !== topping));
     } else if (selected.length < 4) {
       onSelectionChange([...selected, topping]);
     }
   };
 
   const handleSubmit = async () => {
-    if (selected.length === 0 || tasty === null) return;
+    if (selected.length === 0 || tasty === null || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      const userId = getUserId();
-      const result = await api.discover(selected, tasty, userId);
+      const result = await api.discover(selected, tasty, getUserId());
       saveDiscovery({
         comboKey: result.comboKey,
-        toppings: selected,
+        toppings: result.comboKey.split("|"),
         tasty,
         isFirst: result.isFirst,
         timestamp: new Date().toISOString(),
       });
       onSubmit(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "submission failed");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "submission failed");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const chipStyle = (active: boolean): React.CSSProperties => ({
+  const chipStyle = (active: boolean): CSSProperties => ({
     display: "inline-block",
     padding: "0.25rem 0.625rem",
     fontSize: "0.8125rem",
-    border: "1px solid " + (active ? "#111" : "#ddd"),
+    border: `1px solid ${active ? "#111" : "#ddd"}`,
     borderRadius: "1px",
     background: active ? "#111" : "#fff",
     color: active ? "#fff" : "#111",
     cursor: "pointer",
-    transition: "all 0.15s",
   });
 
   return (
-    <div style={{ maxWidth: "480px", width: "100%" }}>
-      <span
-        onClick={onBack}
-        style={{ fontSize: "0.8125rem", color: "#888", cursor: "pointer" }}
-      >
+    <div className="pizza-selector">
+      <Button variant="quiet" onClick={onBack} disabled={submitting}>
         &larr; back
-      </span>
+      </Button>
 
-      <p style={{ fontSize: "0.875rem", margin: "1rem 0 0.5rem", color: "#666" }}>
+      <p className="nr-muted pizza-selector-heading">
         choose up to 4 toppings ({selected.length}/4)
       </p>
 
       {suggestedToppings.length > 0 && (
-        <div style={{ marginBottom: "1rem" }}>
-          <p style={{ fontSize: "0.8125rem", color: "#888", marginBottom: "0.375rem" }}>
+        <section className="pizza-selection-group" aria-labelledby="detected-toppings-label">
+          <p id="detected-toppings-label" className="nr-muted pizza-small-label">
             detected from receipt:
           </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
-            {suggestedToppings.map((t) => (
-              <span key={t} onClick={() => toggle(t)} style={chipStyle(selected.includes(t))}>
-                {t}
-              </span>
+          <div className="pizza-chip-list">
+            {suggestedToppings.map((topping) => (
+              <button
+                key={topping}
+                type="button"
+                aria-pressed={selected.includes(topping)}
+                disabled={submitting || (selected.length >= 4 && !selected.includes(topping))}
+                onClick={() => toggle(topping)}
+                style={chipStyle(selected.includes(topping))}
+              >
+                {topping}
+              </button>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
+      <label className="nr-label pizza-small-label" htmlFor="topping-search">
+        search toppings
+      </label>
       <input
-        type="text"
-        placeholder="search toppings..."
+        id="topping-search"
+        className="nr-input"
+        type="search"
+        placeholder="pepperoni, mushrooms, hot honey..."
         value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        style={{
-          width: "100%",
-          padding: "0.5rem 0.625rem",
-          fontSize: "0.875rem",
-          border: "1px solid #eee",
-          borderRadius: "1px",
-          outline: "none",
-          marginBottom: "0.75rem",
-        }}
+        onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
+        disabled={submitting}
       />
 
-      <div style={{
-        display: "flex",
-        flexWrap: "wrap",
-        gap: "0.375rem",
-        maxHeight: "200px",
-        overflowY: "auto",
-        marginBottom: "1rem",
-      }}>
-        {filtered.slice(0, 40).map((t) => (
-          <span
-            key={t}
-            onClick={() => toggle(t)}
-            style={{
-              ...chipStyle(selected.includes(t)),
-              opacity: selected.length >= 4 && !selected.includes(t) ? 0.3 : 1,
-              pointerEvents: selected.length >= 4 && !selected.includes(t) ? "none" : "auto",
-            }}
+      <div className="pizza-chip-list pizza-topping-results" aria-label="available toppings">
+        {filtered.slice(0, 60).map((topping) => (
+          <button
+            key={topping}
+            type="button"
+            disabled={submitting || selected.length >= 4}
+            onClick={() => toggle(topping)}
+            style={chipStyle(false)}
           >
-            {t}
-          </span>
+            {topping}
+          </button>
         ))}
       </div>
 
       {selected.length > 0 && (
-        <div style={{ marginBottom: "1rem" }}>
-          <p style={{ fontSize: "0.8125rem", color: "#888", marginBottom: "0.375rem" }}>
+        <section className="pizza-selection-group" aria-labelledby="selected-toppings-label">
+          <p id="selected-toppings-label" className="nr-muted pizza-small-label">
             your combo:
           </p>
-          <div style={{ display: "flex", gap: "0.375rem", flexWrap: "wrap" }}>
-            {selected.map((t) => (
-              <span key={t} onClick={() => toggle(t)} style={chipStyle(true)}>
-                {t} &times;
-              </span>
+          <div className="pizza-chip-list">
+            {selected.map((topping) => (
+              <button
+                key={topping}
+                type="button"
+                disabled={submitting}
+                onClick={() => toggle(topping)}
+                style={chipStyle(true)}
+                aria-label={`remove ${topping}`}
+              >
+                {topping} &times;
+              </button>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
       {selected.length > 0 && (
-        <div style={{ marginBottom: "1rem" }}>
-          <p style={{ fontSize: "0.8125rem", color: "#888", marginBottom: "0.375rem" }}>
-            was it tasty?
-          </p>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            {[true, false].map((val) => (
-              <span
-                key={String(val)}
-                onClick={() => setTasty(val)}
-                style={{
-                  padding: "0.375rem 1rem",
-                  fontSize: "0.875rem",
-                  border: "1px solid " + (tasty === val ? "#111" : "#eee"),
-                  borderRadius: "1px",
-                  cursor: "pointer",
-                  background: tasty === val ? "#111" : "#fff",
-                  color: tasty === val ? "#fff" : "#111",
-                }}
-              >
-                {val ? "yes" : "no"}
-              </span>
-            ))}
+        <fieldset className="pizza-rating-group" disabled={submitting}>
+          <legend className="nr-muted pizza-small-label">was it tasty?</legend>
+          <div className="pizza-chip-list">
+            <Button
+              aria-pressed={tasty === true}
+              variant={tasty === true ? "primary" : "default"}
+              onClick={() => setTasty(true)}
+            >
+              yes
+            </Button>
+            <Button
+              aria-pressed={tasty === false}
+              variant={tasty === false ? "primary" : "default"}
+              onClick={() => setTasty(false)}
+            >
+              no
+            </Button>
           </div>
-        </div>
+        </fieldset>
       )}
 
       {error && (
-        <p style={{ fontSize: "0.8125rem", color: "#c00", marginBottom: "0.5rem" }}>{error}</p>
+        <StatusMessage variant="error" title="could not record discovery">
+          {error}
+        </StatusMessage>
       )}
 
-      <span
-        onClick={selected.length > 0 && tasty !== null && !submitting ? handleSubmit : undefined}
-        style={{
-          fontSize: "0.875rem",
-          cursor: selected.length > 0 && tasty !== null && !submitting ? "pointer" : "default",
-          textDecoration: "underline",
-          color: selected.length > 0 && tasty !== null ? "#111" : "#ccc",
-        }}
+      <Button
+        variant="primary"
+        disabled={selected.length === 0 || tasty === null || submitting}
+        onClick={() => void handleSubmit()}
       >
         {submitting ? "submitting..." : "submit discovery"}
-      </span>
+      </Button>
     </div>
   );
 }
