@@ -191,15 +191,6 @@ export default {
           throw new HttpError("duplicate toppings are not allowed", 400);
         }
 
-        if (pendingAdditions.length > 0) {
-          const latestExtended = await getExtendedToppings(env);
-          const nextExtended = uniqueStrings([...latestExtended, ...pendingAdditions]);
-          if (nextExtended.length > MAX_EXTENDED_TOPPINGS) {
-            throw new HttpError("extended topping taxonomy is full", 409);
-          }
-          await env.PIZZA_KV.put("extended_toppings", JSON.stringify(nextExtended));
-        }
-
         const key = comboKey(canonicalToppings);
         const doResponse = await getTracker(env).fetch(
           new Request("https://combo-tracker/discover", {
@@ -208,7 +199,18 @@ export default {
           }),
         );
         if (!doResponse.ok) throw new HttpError("could not record discovery", 502);
-        return jsonResponse(await doResponse.json(), env);
+        const discoveryResult = await doResponse.json();
+
+        if (pendingAdditions.length > 0) {
+          const latestExtended = await getExtendedToppings(env);
+          const nextExtended = uniqueStrings([...latestExtended, ...pendingAdditions]);
+          if (nextExtended.length > MAX_EXTENDED_TOPPINGS) {
+            throw new HttpError("discovery was recorded, but the extended topping taxonomy is full", 409);
+          }
+          await env.PIZZA_KV.put("extended_toppings", JSON.stringify(nextExtended));
+        }
+
+        return jsonResponse(discoveryResult, env);
       }
 
       if (url.pathname === "/api/lookup" && request.method === "GET") {
