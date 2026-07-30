@@ -1,19 +1,18 @@
-# Shared research UI migration
+# Research UI alignment
 
-Pizza Research now consumes `@nmaass/research-ui` from the `research-ui-v0` branch of `NMaass/Chord-Research`.
+Pizza Research uses a small local, typed implementation of the Number Research shell and tokens in `client/src/research-ui.tsx` and `client/src/research-theme.css`.
 
-The shared package owns the Number Research visual foundation and generic interface primitives. Pizza-specific workflow and visualization components remain local.
+The earlier draft referenced an unpublished Git branch package and declared a `Tabs` export that the package did not provide. That made the branch dependent on mutable external source and allowed TypeScript to pass against an API that would fail at runtime. The local compatibility layer mirrors the current shared package primitives while keeping this repository installable from its existing lockfile.
 
-## Included in this migration
+## Included
 
-- shared shell, header, tabs, buttons, inputs, status messaging, and tokens
-- JetBrains Mono-based visual alignment with the other Research applications
-- semantic tab buttons and keyboard focus treatment
-- visible startup API failure with retry
+- shared shell, header, semantic navigation, buttons, inputs, status messaging, and tokens
+- keyboard-accessible navigation and workflow controls
+- visible startup, leaderboard, map, OCR, and submission failures
 - editable restaurant name and address after receipt OCR
 - hash-addressable application views
-- removal of global lowercase transformation from user-entered values
+- no global lowercase transformation for user-entered values
 
 ## Follow-up
 
-After the package API stabilizes, publish it to npm or move it to a dedicated repository and pin consumers to a release tag rather than a branch.
+Once `@nmaass/research-ui` is published with a stable release and lockfile-compatible install path, replace the local compatibility layer with the released package and remove the two local files.
