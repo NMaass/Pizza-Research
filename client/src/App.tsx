@@ -1,11 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  Button,
-  ResearchHeader,
-  ResearchShell,
-  StatusMessage,
-  Tabs,
-} from "@nmaass/research-ui";
 import { api, type DiscoveryResult, type Stats } from "./api";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { Leaderboard } from "./components/Leaderboard";
@@ -14,6 +7,14 @@ import { ProgressBar } from "./components/ProgressBar";
 import { ResultPanel } from "./components/ResultPanel";
 import { ToppingSelector } from "./components/ToppingSelector";
 import { UploadPanel, type ReceiptOcrResult } from "./components/UploadPanel";
+import {
+  Button,
+  ResearchHeader,
+  ResearchNav,
+  ResearchShell,
+  StatusMessage,
+} from "./research-ui";
+import { getUserId } from "./userId";
 
 type View = "discover" | "leaderboard" | "my combos" | "map";
 
@@ -24,10 +25,15 @@ const tabs: Array<{ id: View; label: string }> = [
   { id: "map", label: "map" },
 ];
 
-const viewFromHash = (): View => {
-  const requested = decodeURIComponent(window.location.hash.slice(1));
+function viewFromHash(): View {
+  let requested = "";
+  try {
+    requested = decodeURIComponent(window.location.hash.slice(1));
+  } catch {
+    return "discover";
+  }
   return tabs.some(({ id }) => id === requested) ? (requested as View) : "discover";
-};
+}
 
 export function App() {
   const [view, setView] = useState<View>(viewFromHash);
@@ -35,25 +41,38 @@ export function App() {
   const [allToppings, setAllToppings] = useState<string[]>([]);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [ocrToppings, setOcrToppings] = useState<string[] | null>(null);
+  const [unresolvedToppings, setUnresolvedToppings] = useState<string[]>([]);
   const [selectedToppings, setSelectedToppings] = useState<string[]>([]);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [restaurantName, setRestaurantName] = useState("");
   const [restaurantAddress, setRestaurantAddress] = useState("");
+  const [locationWarning, setLocationWarning] = useState<string | null>(null);
 
   const loadReferenceData = useCallback(async () => {
     setStartupError(null);
-    try {
-      const [nextStats, toppingData] = await Promise.all([
-        api.getStats(),
-        api.getToppings(),
-      ]);
-      setStats(nextStats);
-      setAllToppings(toppingData.toppings);
-    } catch (error) {
-      setStartupError(
-        error instanceof Error ? error.message : "could not load pizza research data",
+    const [statsResult, toppingsResult] = await Promise.allSettled([
+      api.getStats(),
+      api.getToppings(),
+    ]);
+
+    const errors: string[] = [];
+    if (statsResult.status === "fulfilled") {
+      setStats(statsResult.value);
+    } else {
+      errors.push(statsResult.reason instanceof Error ? statsResult.reason.message : "could not load statistics");
+    }
+
+    if (toppingsResult.status === "fulfilled") {
+      setAllToppings(toppingsResult.value.toppings);
+    } else {
+      errors.push(
+        toppingsResult.reason instanceof Error
+          ? toppingsResult.reason.message
+          : "could not load the topping list",
       );
     }
+
+    setStartupError(errors.length > 0 ? errors.join("; ") : null);
   }, []);
 
   useEffect(() => {
@@ -68,46 +87,80 @@ export function App() {
 
   const resetFlow = () => {
     setOcrToppings(null);
+    setUnresolvedToppings([]);
     setSelectedToppings([]);
     setResult(null);
     setRestaurantName("");
     setRestaurantAddress("");
+    setLocationWarning(null);
     void loadReferenceData();
   };
 
   const selectView = (nextView: View) => {
-    window.location.hash = encodeURIComponent(nextView);
-    setView(nextView);
+    const nextHash = `#${encodeURIComponent(nextView)}`;
+    if (window.location.hash !== nextHash) {
+      window.location.hash = nextHash;
+    } else {
+      setView(nextView);
+    }
     if (nextView === "discover") resetFlow();
   };
 
   const handleOcrResult = (ocrResult: ReceiptOcrResult) => {
     setOcrToppings(ocrResult.toppings);
+    setUnresolvedToppings(ocrResult.unresolvedToppings);
     setSelectedToppings(ocrResult.toppings.slice(0, 4));
+    setAllToppings((current) =>
+      [...new Set([...current, ...ocrResult.toppings])].sort((left, right) =>
+        left.localeCompare(right),
+      ),
+    );
     setRestaurantName(ocrResult.restaurantName ?? "");
     setRestaurantAddress(ocrResult.restaurantAddress ?? "");
   };
 
   const handleDiscoveryResult = (discoveryResult: DiscoveryResult) => {
     setResult(discoveryResult);
-    if (restaurantAddress.trim()) {
-      api.geocode(restaurantAddress.trim(), restaurantName.trim() || undefined).catch(() => {
-        // Geocoding is supplementary; the discovery itself has already succeeded.
-      });
+    setLocationWarning(null);
+
+    const address = restaurantAddress.trim();
+    if (address && discoveryResult.isNewObservation) {
+      void api
+        .geocode(
+          address,
+          restaurantName.trim() || undefined,
+          discoveryResult.comboKey,
+          getUserId(),
+        )
+        .catch((error: unknown) => {
+          setLocationWarning(
+            error instanceof Error
+              ? `the combo was recorded, but the restaurant could not be added to the map: ${error.message}`
+              : "the combo was recorded, but the restaurant could not be added to the map",
+          );
+        });
     }
   };
+
+  const maxCombos = stats?.maxCombos ?? 0;
+  const discoveredFraction = maxCombos > 0 && stats ? stats.comboCount / maxCombos : 0;
 
   return (
     <ResearchShell className="pizza-research">
       <ResearchHeader title="Pizza Research Inc." homeHref="#discover">
-        <Tabs items={tabs} activeId={view} onChange={(id) => selectView(id as View)} />
+        <ResearchNav
+          items={tabs}
+          activeId={view}
+          onChange={(id) => selectView(id as View)}
+          ariaLabel="pizza research views"
+        />
       </ResearchHeader>
 
       <main className="nr-page">
         {startupError && (
           <StatusMessage
             variant="error"
-            title="could not load research data"
+            title="some research data could not be loaded"
             action={<Button onClick={() => void loadReferenceData()}>try again</Button>}
           >
             {startupError}
@@ -116,12 +169,12 @@ export function App() {
 
         {view === "discover" && (
           <section className="nr-panel nr-panel--center pizza-view" aria-label="discover a pizza combination">
-            {stats && (
+            {stats && maxCombos > 0 && (
               <>
-                <ProgressBar fraction={stats.comboCount / stats.maxCombos} />
+                <ProgressBar fraction={discoveredFraction} />
                 <p className="nr-muted pizza-progress-copy">
-                  {((stats.comboCount / stats.maxCombos) * 100).toFixed(3)}% of combos discovered
-                  ({" "}{stats.comboCount.toLocaleString()} / {stats.maxCombos.toLocaleString()})
+                  {(discoveredFraction * 100).toFixed(3)}% of combos discovered ({" "}
+                  {stats.comboCount.toLocaleString()} / {maxCombos.toLocaleString()})
                 </p>
               </>
             )}
@@ -131,37 +184,55 @@ export function App() {
             {!result && ocrToppings !== null && (
               <>
                 <div className="nr-field">
-                  <label className="nr-label" htmlFor="restaurant-name">restaurant name</label>
+                  <label className="nr-label" htmlFor="restaurant-name">
+                    restaurant name
+                  </label>
                   <input
                     id="restaurant-name"
                     className="nr-input"
                     value={restaurantName}
-                    onChange={(event) => setRestaurantName(event.target.value)}
+                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => setRestaurantName(event.target.value)}
+                    maxLength={120}
                     placeholder="optional"
                   />
                 </div>
                 <div className="nr-field">
-                  <label className="nr-label" htmlFor="restaurant-address">restaurant address</label>
+                  <label className="nr-label" htmlFor="restaurant-address">
+                    restaurant address
+                  </label>
                   <input
                     id="restaurant-address"
                     className="nr-input"
                     value={restaurantAddress}
-                    onChange={(event) => setRestaurantAddress(event.target.value)}
+                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => setRestaurantAddress(event.target.value)}
+                    maxLength={240}
                     placeholder="optional"
                   />
                 </div>
+                {unresolvedToppings.length > 0 && (
+                  <StatusMessage variant="info" title="some receipt text needs manual review">
+                    Could not normalize: {unresolvedToppings.join(", ")}. Search the topping list and
+                    select the intended toppings before submitting.
+                  </StatusMessage>
+                )}
                 <ToppingSelector
                   allToppings={allToppings}
                   suggestedToppings={ocrToppings}
                   selected={selectedToppings}
                   onSelectionChange={setSelectedToppings}
                   onSubmit={handleDiscoveryResult}
-                  onBack={() => setOcrToppings(null)}
+                  onBack={() => {
+                    setOcrToppings(null);
+                    setUnresolvedToppings([]);
+                    setSelectedToppings([]);
+                  }}
                 />
               </>
             )}
 
-            {result && <ResultPanel result={result} onReset={resetFlow} />}
+            {result && (
+              <ResultPanel result={result} locationWarning={locationWarning} onReset={resetFlow} />
+            )}
           </section>
         )}
 
