@@ -1,21 +1,41 @@
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: { "Content-Type": "application/json", ...options?.headers },
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((err as { error?: string }).error ?? "Request failed");
+  const text = await response.text();
+  let payload: unknown = null;
+
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      if (response.ok) throw new Error("server returned an invalid response");
+    }
   }
-  return res.json();
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
+        ? payload.error
+        : response.statusText || "request failed";
+    throw new Error(message);
+  }
+
+  return payload as T;
 }
 
 export interface ToppingMatch {
   raw: string;
   canonical: string | null;
   matched: boolean;
+}
+
+export interface ReceiptPizzaMatch {
+  label: string | null;
+  toppings: ToppingMatch[];
 }
 
 export interface ComboData {
@@ -28,6 +48,8 @@ export interface ComboData {
 
 export interface DiscoveryResult {
   isFirst: boolean;
+  isNewObservation: boolean;
+  ratingChanged: boolean;
   combo: ComboData;
   comboKey: string;
 }
@@ -45,12 +67,21 @@ export interface LeaderboardEntry {
   tastiness?: number;
 }
 
+export interface DiscovererLeaderboardEntry {
+  userId: string;
+  count: number;
+}
+
 export interface PizzaPin {
   name: string;
   address: string;
   lat: number;
   lng: number;
 }
+
+export type NormalizeToppingResult =
+  | { action: "match"; canonical: string }
+  | { action: "new"; name: string };
 
 export const api = {
   getToppings: () =>
@@ -60,13 +91,17 @@ export const api = {
     apiFetch<{ maxCombos: number; toppingCount: number }>("/api/max-combos"),
 
   ocr: (image: string, mimeType: string) =>
-    apiFetch<{ toppings: ToppingMatch[]; restaurantName: string | null; restaurantAddress: string | null }>("/api/ocr", {
+    apiFetch<{
+      pizzas: ReceiptPizzaMatch[];
+      restaurantName: string | null;
+      restaurantAddress: string | null;
+    }>("/api/ocr", {
       method: "POST",
       body: JSON.stringify({ image, mimeType }),
     }),
 
   normalize: (topping: string) =>
-    apiFetch<{ action: string; canonical?: string; name?: string }>("/api/normalize", {
+    apiFetch<NormalizeToppingResult>("/api/normalize", {
       method: "POST",
       body: JSON.stringify({ topping }),
     }),
@@ -82,17 +117,26 @@ export const api = {
 
   getStats: () => apiFetch<Stats>("/api/stats"),
 
-  getLeaderboard: (type: "common" | "tasty" | "discoverers", limit = 20) =>
+  getLeaderboard: (type: "common" | "tasty", limit = 20) =>
     apiFetch<{ leaderboard: LeaderboardEntry[] }>(
-      `/api/leaderboard?type=${type}&limit=${limit}`
+      `/api/leaderboard?type=${type}&limit=${limit}`,
     ),
 
-  getPins: () =>
-    apiFetch<{ pins: PizzaPin[] }>("/api/pins"),
+  getDiscovererLeaderboard: (limit = 20) =>
+    apiFetch<{ leaderboard: DiscovererLeaderboardEntry[] }>(
+      `/api/leaderboard?type=discoverers&limit=${limit}`,
+    ),
 
-  geocode: (address: string, restaurantName?: string) =>
+  getPins: () => apiFetch<{ pins: PizzaPin[] }>("/api/pins"),
+
+  geocode: (
+    address: string,
+    restaurantName: string | undefined,
+    comboKey: string,
+    userId: string,
+  ) =>
     apiFetch<PizzaPin>("/api/geocode", {
       method: "POST",
-      body: JSON.stringify({ address, restaurantName }),
+      body: JSON.stringify({ address, restaurantName, comboKey, userId }),
     }),
 };

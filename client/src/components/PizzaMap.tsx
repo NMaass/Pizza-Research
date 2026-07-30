@@ -1,84 +1,120 @@
-import { useState, useEffect, useRef } from "react";
-import { api, type PizzaPin } from "../api";
+import { useCallback, useEffect, useRef, useState } from "react";
 import L from "leaflet";
+import { api, type PizzaPin } from "../api";
+import { Button, StatusMessage } from "../research-ui";
 
 export function PizzaMap() {
   const [pins, setPins] = useState<PizzaPin[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMap = useRef<L.Map | null>(null);
+  const markerLayer = useRef<L.LayerGroup | null>(null);
 
-  useEffect(() => {
-    api
-      .getPins()
-      .then((r) => setPins(r.pins))
-      .catch(() => setPins([]))
-      .finally(() => setLoading(false));
+  const loadPins = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.getPins();
+      setPins(result.pins.filter(isValidPin));
+    } catch (cause) {
+      setPins([]);
+      setError(cause instanceof Error ? cause.message : "could not load pizza places");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (!mapRef.current || loading) return;
+    void loadPins();
+  }, [loadPins]);
 
-    // Initialize map if not already
+  useEffect(() => {
+    if (!mapRef.current || loading || error) return;
+
     if (!leafletMap.current) {
-      leafletMap.current = L.map(mapRef.current).setView([39.8, -98.5], 4);
+      const map = L.map(mapRef.current).setView([39.8, -98.5], 4);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 18,
-      }).addTo(leafletMap.current);
+      }).addTo(map);
+      leafletMap.current = map;
+      markerLayer.current = L.layerGroup().addTo(map);
     }
 
     const map = leafletMap.current;
+    const layer = markerLayer.current;
+    if (!map || !layer) return;
 
-    // Clear existing markers
-    map.eachLayer((layer) => {
-      if (layer instanceof L.Marker) {
-        map.removeLayer(layer);
-      }
-    });
-
-    // Add pin markers
+    layer.clearLayers();
     for (const pin of pins) {
-      L.marker([pin.lat, pin.lng])
-        .addTo(map)
-        .bindPopup(`<b>${pin.name}</b><br/>${pin.address}`);
+      const popup = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = pin.name;
+      const address = document.createElement("div");
+      address.textContent = pin.address;
+      popup.append(name, address);
+
+      L.circleMarker([pin.lat, pin.lng], {
+        radius: 7,
+        weight: 2,
+        fillOpacity: 0.7,
+      })
+        .addTo(layer)
+        .bindPopup(popup);
     }
 
-    // Fit bounds if we have pins
     if (pins.length > 0) {
-      const bounds = L.latLngBounds(pins.map((p) => [p.lat, p.lng] as [number, number]));
+      const bounds = L.latLngBounds(pins.map((pin) => [pin.lat, pin.lng] as [number, number]));
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
     }
+    requestAnimationFrame(() => map.invalidateSize());
+  }, [error, loading, pins]);
 
-    return () => {};
-  }, [pins, loading]);
-
-  // Cleanup map on unmount
   useEffect(() => {
     return () => {
-      if (leafletMap.current) {
-        leafletMap.current.remove();
-        leafletMap.current = null;
-      }
+      leafletMap.current?.remove();
+      leafletMap.current = null;
+      markerLayer.current = null;
     };
   }, []);
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "1rem 1.25rem" }}>
-        <p style={{ fontSize: "0.875rem", color: "#666" }}>
-          {loading
-            ? "loading pins..."
-            : `${pins.length} pizza ${pins.length === 1 ? "place" : "places"} discovered`}
-        </p>
-      </div>
-      <div
-        ref={mapRef}
-        style={{
-          flex: 1,
-          minHeight: "400px",
-        }}
-      />
-    </div>
+    <section className="pizza-map-view" aria-labelledby="map-title">
+      <h1 id="map-title" className="pizza-view-title">
+        map
+      </h1>
+      {loading ? (
+        <StatusMessage variant="info" title="loading pizza places" />
+      ) : error ? (
+        <StatusMessage
+          variant="error"
+          title="could not load pizza places"
+          action={<Button onClick={() => void loadPins()}>try again</Button>}
+        >
+          {error}
+        </StatusMessage>
+      ) : (
+        <>
+          <p className="nr-muted">
+            {pins.length} pizza {pins.length === 1 ? "place" : "places"} discovered
+          </p>
+          <div ref={mapRef} className="pizza-map-canvas" aria-label="map of discovered pizza places" />
+        </>
+      )}
+    </section>
+  );
+}
+
+function isValidPin(pin: PizzaPin): boolean {
+  return (
+    typeof pin.name === "string" &&
+    typeof pin.address === "string" &&
+    Number.isFinite(pin.lat) &&
+    Number.isFinite(pin.lng) &&
+    pin.lat >= -90 &&
+    pin.lat <= 90 &&
+    pin.lng >= -180 &&
+    pin.lng <= 180
   );
 }
