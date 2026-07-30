@@ -1,7 +1,3 @@
-/**
- * Shared types between worker and client.
- */
-
 export interface ComboData {
   count: number;
   tasty: number;
@@ -12,6 +8,8 @@ export interface ComboData {
 
 export interface DiscoveryResult {
   isFirst: boolean;
+  isNewObservation: boolean;
+  ratingChanged: boolean;
   combo: ComboData;
   comboKey: string;
 }
