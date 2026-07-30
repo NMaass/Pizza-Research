@@ -1,35 +1,17 @@
-/**
- * ComboTracker Durable Object
- *
- * Stores all pizza topping combo discoveries.
- * Each combo key (sorted toppings joined by "|") maps to:
- *   - count: total discoveries
- *   - tasty: number of "tasty" ratings
- *   - notTasty: number of "not tasty" ratings
- *   - firstDiscoveredAt: ISO timestamp
- *   - firstDiscoveredBy: user ID
- */
+import { applyDiscovery, type ComboData } from "./discovery-logic";
 
-export interface ComboData {
-  count: number;
-  tasty: number;
-  notTasty: number;
-  firstDiscoveredAt: string;
-  firstDiscoveredBy: string;
-}
+export type { ComboData } from "./discovery-logic";
 
 export interface DiscoveryResult {
   isFirst: boolean;
+  isNewObservation: boolean;
+  ratingChanged: boolean;
   combo: ComboData;
   comboKey: string;
 }
 
 export class ComboTracker implements DurableObject {
-  private state: DurableObjectState;
-
-  constructor(state: DurableObjectState) {
-    this.state = state;
-  }
+  constructor(private readonly state: DurableObjectState) {}
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -39,12 +21,14 @@ export class ComboTracker implements DurableObject {
         return this.handleDiscover(request);
       case "/lookup":
         return this.handleLookup(url);
+      case "/observed":
+        return this.handleObserved(url);
       case "/leaderboard":
         return this.handleLeaderboard(url);
       case "/stats":
         return this.handleStats();
       default:
-        return new Response("Not found", { status: 404 });
+        return Response.json({ error: "not found" }, { status: 404 });
     }
   }
 
@@ -54,97 +38,138 @@ export class ComboTracker implements DurableObject {
       tasty: boolean;
       userId: string;
     };
+    const observationKey = createObservationKey(body.userId, body.comboKey);
 
-    const existing = await this.state.storage.get<ComboData>(body.comboKey);
-    const isFirst = !existing;
+    const result = await this.state.storage.transaction(async (transaction) => {
+      const [existing, previousRating] = await Promise.all([
+        transaction.get<ComboData>(body.comboKey),
+        transaction.get<boolean>(observationKey),
+      ]);
+      const transition = applyDiscovery(
+        existing,
+        previousRating,
+        body.tasty,
+        body.userId,
+        new Date().toISOString(),
+      );
 
-    const combo: ComboData = existing ?? {
-      count: 0,
-      tasty: 0,
-      notTasty: 0,
-      firstDiscoveredAt: new Date().toISOString(),
-      firstDiscoveredBy: body.userId,
-    };
+      if (transition.shouldWriteCombo) {
+        await transaction.put(body.comboKey, transition.combo);
+      }
+      if (transition.shouldWriteObservation) {
+        await transaction.put(observationKey, body.tasty);
+      }
+      return {
+        isFirst: transition.isFirst,
+        isNewObservation: transition.isNewObservation,
+        ratingChanged: transition.ratingChanged,
+        combo: transition.combo,
+        comboKey: body.comboKey,
+      } satisfies DiscoveryResult;
+    });
 
-    combo.count++;
-    if (body.tasty) {
-      combo.tasty++;
-    } else {
-      combo.notTasty++;
-    }
-
-    await this.state.storage.put(body.comboKey, combo);
-
-    // Update discoverer's count
-    const discovererKey = `user:${body.userId}`;
-    const userCount = ((await this.state.storage.get<number>(discovererKey)) ?? 0) + 1;
-    await this.state.storage.put(discovererKey, userCount);
-
-    const result: DiscoveryResult = { isFirst, combo, comboKey: body.comboKey };
     return Response.json(result);
   }
 
   private async handleLookup(url: URL): Promise<Response> {
     const key = url.searchParams.get("key");
-    if (!key) return new Response("Missing key", { status: 400 });
+    if (!key) return Response.json({ error: "missing key" }, { status: 400 });
 
     const combo = await this.state.storage.get<ComboData>(key);
-    if (!combo) return Response.json({ found: false });
+    return combo ? Response.json({ found: true, combo }) : Response.json({ found: false });
+  }
 
-    return Response.json({ found: true, combo });
+  private async handleObserved(url: URL): Promise<Response> {
+    const comboKey = url.searchParams.get("key");
+    const userId = url.searchParams.get("userId");
+    if (!comboKey || !userId) {
+      return Response.json({ error: "missing observation key" }, { status: 400 });
+    }
+    const rating = await this.state.storage.get<boolean>(createObservationKey(userId, comboKey));
+    return Response.json({ observed: rating !== undefined });
   }
 
   private async handleLeaderboard(url: URL): Promise<Response> {
     const type = url.searchParams.get("type") ?? "common";
-    const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "20"), 100);
-
-    // Get all combo entries (filter out user keys)
-    const all = await this.state.storage.list<ComboData>();
+    const requestedLimit = Number.parseInt(url.searchParams.get("limit") ?? "20", 10);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), 100)
+      : 20;
+    const all = await this.state.storage.list<unknown>();
     const combos: Array<{ key: string; data: ComboData }> = [];
-    const users: Array<{ userId: string; count: number }> = [];
-
     for (const [key, value] of all) {
-      if (key.startsWith("user:")) {
-        users.push({ userId: key.slice(5), count: value as unknown as number });
-      } else {
-        combos.push({ key, data: value as ComboData });
+      if (isComboStorageKey(key) && isComboData(value)) {
+        combos.push({ key, data: value });
       }
     }
 
     if (type === "discoverers") {
-      users.sort((a, b) => b.count - a.count);
+      const counts = new Map<string, number>();
+      for (const entry of combos) {
+        counts.set(
+          entry.data.firstDiscoveredBy,
+          (counts.get(entry.data.firstDiscoveredBy) ?? 0) + 1,
+        );
+      }
+      const users = [...counts].map(([userId, count]) => ({ userId, count }));
+      users.sort((left, right) => right.count - left.count || left.userId.localeCompare(right.userId));
       return Response.json({ leaderboard: users.slice(0, limit) });
     }
 
     if (type === "tasty") {
-      // Sort by tastiness percentage (min 3 ratings to qualify)
       const rated = combos
-        .filter((c) => c.data.count >= 3)
-        .map((c) => ({
-          ...c,
-          tastiness: c.data.tasty / (c.data.tasty + c.data.notTasty),
+        .filter((entry) => entry.data.count >= 3)
+        .map((entry) => ({
+          ...entry,
+          tastiness: entry.data.tasty / Math.max(1, entry.data.tasty + entry.data.notTasty),
         }))
-        .sort((a, b) => b.tastiness - a.tastiness);
+        .sort(
+          (left, right) =>
+            right.tastiness - left.tastiness ||
+            right.data.count - left.data.count ||
+            left.key.localeCompare(right.key),
+        );
       return Response.json({ leaderboard: rated.slice(0, limit) });
     }
 
-    // Default: most common
-    combos.sort((a, b) => b.data.count - a.data.count);
+    combos.sort(
+      (left, right) => right.data.count - left.data.count || left.key.localeCompare(right.key),
+    );
     return Response.json({ leaderboard: combos.slice(0, limit) });
   }
 
   private async handleStats(): Promise<Response> {
-    const all = await this.state.storage.list();
+    const all = await this.state.storage.list<unknown>();
     let comboCount = 0;
     let totalDiscoveries = 0;
 
     for (const [key, value] of all) {
-      if (!key.startsWith("user:")) {
-        comboCount++;
-        totalDiscoveries += (value as ComboData).count;
+      if (isComboStorageKey(key) && isComboData(value)) {
+        comboCount += 1;
+        totalDiscoveries += value.count;
       }
     }
 
     return Response.json({ comboCount, totalDiscoveries });
   }
+}
+
+function createObservationKey(userId: string, comboKey: string): string {
+  return `submission:${userId}:${encodeURIComponent(comboKey)}`;
+}
+
+function isComboStorageKey(key: string): boolean {
+  return !key.startsWith("user:") && !key.startsWith("submission:");
+}
+
+function isComboData(value: unknown): value is ComboData {
+  if (!value || typeof value !== "object") return false;
+  const combo = value as Partial<ComboData>;
+  return (
+    typeof combo.count === "number" &&
+    typeof combo.tasty === "number" &&
+    typeof combo.notTasty === "number" &&
+    typeof combo.firstDiscoveredAt === "string" &&
+    typeof combo.firstDiscoveredBy === "string"
+  );
 }
