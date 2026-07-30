@@ -1,5 +1,6 @@
 const STORAGE_KEY = "pizza_research_user_id";
 const DISCOVERIES_KEY = "pizza_research_discoveries";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let memoryUserId: string | null = null;
 
 export function getUserId(): string {
@@ -7,7 +8,7 @@ export function getUserId(): string {
 
   try {
     const existing = localStorage.getItem(STORAGE_KEY);
-    if (existing) {
+    if (existing && UUID_PATTERN.test(existing)) {
       memoryUserId = existing;
       return existing;
     }
